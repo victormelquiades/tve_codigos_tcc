@@ -1,0 +1,1087 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+# Pacotes necessários
+```{r}
+library(extRemes)
+library(readxl)
+library(dplyr)
+library(EnvStats)
+library(evmix)
+library(lubridate)
+library(ggplot2)
+library(evdbayes)
+library(MCMC4Extremes)
+```
+
+# Base de dados do TCC
+```{r}
+dados <- read_excel("base_tcc_0.xlsx")
+dados
+
+
+```
+
+
+## Valores diferentes para DESC_NATUREZA e COBERTURA
+```{r}
+unique(dados$DESC_NATUREZA)
+```
+
+```{r}
+unique(dados$COBERTURA)
+```
+
+```{r}
+dados %>% 
+  group_by(COBERTURA) %>% 
+  summarise(prop = n()/length(dados$data_evento)) %>% 
+  arrange(desc(prop))
+```
+
+## Valor médio por cobertura
+```{r}
+dados %>% 
+  group_by(COBERTURA) %>% 
+  summarise(media_por_cob = mean(AVISO_TOTAL)) %>% 
+  arrange(desc(media_por_cob))
+```
+
+A cobertura Básica tem valor de aviso de sinistro muito maior do que as outras coberturas, em média.
+
+
+## Passando os valores pra unidade de milhar
+```{r}
+df <- dados %>% 
+  group_by(data_evento) %>% 
+  summarise(SR_TOTAL = sum(SR_TOTAL),
+            AVISO_TOTAL = sum(AVISO_TOTAL)) %>% 
+  mutate(SR_TOTAL = SR_TOTAL/1000,
+         AVISO_TOTAL = AVISO_TOTAL/1000)
+
+df
+```
+
+Agora temos registros diários de 2016 a 2019 de Sinistro Retido Total e Aviso Total, ambos em milhares de reais.
+
+
+```{r}
+summary(df)
+```
+
+
+## Observações em que o Aviso foi igual a 0
+```{r}
+df %>% 
+  filter(AVISO_TOTAL == 0)
+```
+Essas linhas devem ser removidas pois representam dias atípicos, erros no sistema, ou apenas dias sem movimentação de AVISO.
+
+
+```{r}
+df1 <- df %>% 
+  filter(AVISO_TOTAL != 0)
+
+df1
+```
+
+## Série histórica valor de aviso
+```{r}
+ggplot(df1) +
+  geom_line(aes(x = data_evento, y = AVISO_TOTAL)) +
+  theme_classic() +
+  labs(
+       x = "Data do Aviso",
+       y = "Valor do Aviso (milhares)") +
+  theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+```
+
+
+## Boxplot por cobertura
+```{r}
+# Cria o gráfico de caixa
+dados %>% 
+  mutate(AVISO_TOTAL = AVISO_TOTAL/1000) %>% 
+  filter(AVISO_TOTAL != 0) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = COBERTURA, y = AVISO_TOTAL)) +
+  xlab("") +
+  ylab("Valor de Aviso (milhares)") +
+  theme_classic() +
+  theme(panel.border = element_rect(color = "BLACK", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+
+```
+
+Os valores de aviso para a cobertura básica são muito mais altos do que os valores das outras coberturas. Dessa forma, vamos seguir as análises considerando apenas as observações da cobertura básica.
+
+
+## Série do valor de aviso apenas da cobertura básica
+```{r}
+df2 <- dados %>% 
+  filter(COBERTURA == "BASICA" & AVISO_TOTAL != 0) %>% 
+  group_by(data_evento) %>% 
+  summarise(Aviso = sum(AVISO_TOTAL)/1000)
+
+
+ggplot(df2) +
+geom_line(aes(x = data_evento, y = Aviso)) +
+theme_classic() +
+labs(
+    x = "Data do Aviso",
+    y = "Valor do Aviso (milhares)") +
+theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+```
+
+
+## Histograma
+```{r}
+ggplot(df2, aes(x = Aviso, y = ..density..)) + 
+  geom_histogram(colour = "black", fill = "white") + 
+  xlab("Aviso de Sinistro") + ylab("Densidade")+
+  theme_classic() +
+  theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5)) +
+  theme(axis.title = element_text(size = 15))
+```
+
+
+```{r}
+ggplot(df2) +
+  geom_boxplot(aes(y = Aviso)) +
+  theme_classic() +
+  theme(panel.border = element_rect(color = "BLACK", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))+
+  theme(axis.title = element_text(size = 15))
+```
+
+
+
+```{r}
+summary(df2)
+```
+
+
+
+
+
+```{r}
+df2 <- df2 %>% 
+  mutate(data_evento = as_date(data_evento))
+df2
+```
+
+
+
+
+Dividindo a base em blocos, onde o bloco representa um mês
+```{r}
+df_blocos <- df2 %>% 
+  mutate(ano = year(data_evento), mes = month(data_evento)) %>% 
+  group_by(ano, mes) %>% 
+  summarise(Aviso = max(Aviso))
+
+df_blocos
+```
+Agora os dados representam os máximos MENSAIS de 2016 a 2019 do valor de AVISO de sinistro entre 2016 e 2019.
+
+
+
+
+```{r}
+df_blocos1 <- df_blocos %>%
+  mutate(ano = factor(ano, levels = c("2016", "2017", "2018", "2019"))
+  )
+
+
+df_blocos1
+```
+
+
+
+```{r}
+ggplot(df_blocos1, aes(x = mes, y = Aviso, color = ano)) +
+  geom_line() +
+  xlab("Mês") +
+  ylab("Máximo Mensal") +
+  theme_classic() +
+  xlim(0, 13) +
+  scale_linetype_manual(values = c("solid", "dashed", "dotted", "dotdash")) +
+  theme(panel.border = element_rect(color = "BLACK", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5),
+        legend.position = c(0.1, 0.8)) +
+  scale_x_continuous(breaks = 1:12)
+
+```
+
+
+
+
+## Histograma dos máximos dos blocos (nao costumam usar)
+```{r}
+hist(df_blocos$Aviso)
+
+
+
+ggplot(df_blocos, aes(x = Aviso, y = ..density..)) + 
+  geom_histogram(colour = "black", fill = "white") + 
+  xlab("Valores") + ylab("Densidade")+
+  theme_classic() +
+  theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+```
+
+## Função de autocorrelação dos máximos mensais
+```{r}
+serie <- ts(df_blocos$Aviso, start = c(2016, 1), frequency = 12)
+acf(serie, lag.max = 5, main = "Função de Autocorrelação Simples")
+```
+
+
+## Teste de Ljung-Box para autocorrelação dos máximos mensais
+```{r}
+Box.test(df_blocos$Aviso, lag = 10, type = "Ljung-Box")
+```
+Como o p-valor foi maior que 0.05, então não há evidências para rejeitar a hipótese de que os dados não são autocorrelacionados, ao nível de 5% de significância.
+
+
+
+## Ajustando a GEV
+```{r}
+mod1 <- fevd(df_blocos$Aviso, method = "MLE")
+distill(mod1)
+```
+
+Parâmetro de forma = 0.004749551, muito próximo de 0 então a distribuição mais apropriada pode ser a Gumbel.
+IC(95) para o parâmetro de forma ------> [-0.14339 ; 0.1528891]. Como o IC contém o 0, entao essa GEV corresponde a distribuição Gumbel.
+
+
+Parâmetro de locação (mu) = 1581.612; Desvio padrão = 93.57975
+IC(95) para parâmetro de locação ------> [1398.199 ; 1765.025]
+
+
+Parâmetro de escala (sigma) = 585.1881; Desvio padrão = 60.91822
+IC(95) para parâmetro de escala ------> [465.7906 ; 704.5856]
+
+
+
+## Gráficos diagnósticos
+```{r}
+plot(mod1) 
+```
+
+```{r}
+plot(mod1, type = "qq", main = "")
+```
+
+```{r}
+plot(mod1, type = "prob", main = "")
+```
+
+```{r}
+plot(mod1, type = "density", main = "", xlab = "Valor de Aviso", ylab = "Densidade")
+```
+
+```{r}
+plot(mod1, type = "rl", main = "")
+```
+
+```{r}
+plot(mod1, type = "qq2")
+```
+
+```{r}
+plot(mod1, type = "trace")
+
+```
+
+```{r}
+return.level(mod1, do.ci = TRUE) #Com intervalos de confiança
+
+```
+É esperado que o valor de aviso de sinistro de R$3.332.053 seja excedido uma vez a cada 20 meses.
+É esperado que o valor de aviso de sinistro de R$4.303.188 seja excedido uma vez a cada 100 meses.
+
+```{r}
+ci(mod1, return.period = c(24, 48, 72))
+```
+Mesma interpretação acima mas com tempos diferentes.
+
+
+Probabilidade de exceder
+
+
+
+##-------------------------------------------------------
+
+
+## GPD
+
+
+```{r}
+plot(df2$Aviso)
+```
+
+
+## Definindo o limiar
+
+# 1)
+```{r}
+threshrange.plot(df2$Aviso, r = c(200, 2000), nint = 50)
+```
+
+
+
+
+
+```{r}
+mrlplot(df2$Aviso, legend.loc = "bottomleft", main = "", xlab = "Limiar u", ylab = "Média dos Excessos",p.or.n = F)
+```
+
+Com esse método, temos como limiar: 1 milhão e 300 mil. Ou seja, acima disso consideramos como extremos. Com isso, temos um pouco mais de 91 observações. Com o método de máximos em blocos tínhamos 48 apenas.
+
+As estimativas de máxima verossimilhança com esse limiar também já foram dadas:
+sigma_tiu = 480
+forma (xi) = 0.11
+
+Mas não temos os erros padrão desses estimadores.
+
+
+```{r}
+length(df2$Aviso[df2$Aviso > 1200]) / length(df2$Aviso)
+```
+Esse limiar representa o quantil de 95% dos dados originais. Então é razoável de se utilizar.
+
+
+
+## Autocorrelação dos excessos de um limiar
+
+## Criando a coluna com os excessos dado que é maior que o limiar
+```{r}
+excessos <- df %>% 
+  filter(AVISO_TOTAL >= 1200) %>% 
+  mutate(excessos = AVISO_TOTAL - 1200)
+
+excessos
+```
+
+## Autocorrelação
+```{r}
+serie_gpd <- ts(excessos$excessos, start = c(2016, 1), frequency = 12)
+acf(serie_gpd, lag.max = 5, main = "Função de Autocorrelação Simples")
+```
+
+```{r}
+Box.test(excessos$excessos, lag = 10, type = "Ljung-Box")
+```
+Como o p-valor foi bem alto, também não rejeitamos a hipótese nula de que as observações não são autocorrelacionadas.
+
+
+
+## Estimativas
+```{r}
+fitD <- fevd(df$AVISO_TOTAL, threshold = 1200, type = "GP")
+
+distill(fitD)
+```
+Aqui temos as estimativas do parâmetro de forma (xi) e sigma_tiu da GPD.
+
+IC(95) para forma: [-0.1176261 ; 0.3082042]
+
+IC(95) para sigma_tiu: [353.719 ; 636.531]
+
+
+## Gráficos diagnósticos
+
+```{r}
+plot(fitD)
+```
+
+
+
+
+```{r}
+plot(fitD, type = "qq", main = "")
+```
+
+```{r}
+plot(fitD, type = "qq2")
+```
+
+```{r}
+plot(fitD, type = "rl", main = "Nível de retorno")
+```
+
+```{r}
+plot(fitD, type = "density", main = "", xlab = "Valor de Aviso")
+
+```
+
+
+```{r}
+return.level(fitD, do.ci = T)
+```
+
+
+```{r}
+ci(fitD, return.period = c(24, 48, 72))
+```
+
+É esperado que o valor de aviso de sinistro seja maior que 5350896 uma vez a cada 24 meses (2 anos).
+É esperado que o valor de aviso de sinistro seja maior que 6022022 uma vez a cada 72 meses (6 anos).
+
+
+# ----------------------------------------------------
+
+## GEV bayesiana (extRemes)
+```{r}
+mod_bayes <- fevd(df_blocos$Aviso, type = "GEV", method = "Bayesian", iter = 10000)
+
+
+postmode(mod_bayes)
+```
+
+```{r}
+plot(mod_bayes, "trace")
+```
+
+
+
+## GPD bayesiana (extRemes)
+```{r}
+mod_bayes_gpd <- fevd(df2$Aviso, threshold = 1200, type = "GP", method = "Bayesian", iter = 10000)
+
+
+postmode(mod_bayes_gpd)
+```
+
+```{r}
+plot(mod_bayes_gpd, "trace")
+```
+
+
+# MCMC4EXTREMES
+```{r}
+x <- rgev(500, xi = 0.1, mu = 10, sigma = 5)
+ajuste <- gevp(x, 1, int = 5000)
+summary(ajuste)
+```
+
+# gev bayesiana mcmc4extremes
+```{r}
+modelo_gev_bayes <- gevp(df_blocos$Aviso, 1, int = 10000)
+
+summary(modelo_gev_bayes)
+```
+
+
+```{r}
+plot(modelo_gev_bayes, type = "histogram")
+plot(modelo_gev_bayes, type = "retlevel")
+plot(modelo_gev_bayes, type = "predictive")
+```
+
+
+```{r}
+library(coda)
+
+# Criar um objeto MCMC com os resultados da cadeia
+mcmc_results <- mcmc(modelo_gev_bayes$posterior)
+
+# Criar o gráfico de traço
+traceplot(mcmc_results)
+
+# Criar o gráfico de densidade
+densplot(mcmc_results)
+
+```
+
+
+
+## gpd bayesiana mcmc4extremes
+
+```{r}
+modelo_gpd_bayes <- gpdp(df2$Aviso, threshold = 1200, int = 5000)
+
+summary(modelo_gpd_bayes)
+```
+
+```{r}
+# Criar um objeto MCMC com os resultados da cadeia
+mcmc_results1 <- mcmc(modelo_gpd_bayes$posterior)
+
+# Criar o gráfico de traço
+traceplot(mcmc_results1)
+
+# Criar o gráfico de densidade
+densplot(mcmc_results1)
+```
+
+# gpd bayesiana pacote extRemes
+```{r}
+fitD <- fevd(df$AVISO_TOTAL, threshold = 1200, type = "GP", method = "Bayesian")
+
+plot(fitD, "trace")
+
+postmode(fitD)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# gev bayesiana evdbayes
+
+```{r}
+set.seed(12051993)
+mat <- diag(c(400^2, 1000, 100)) #siminuir var de mu
+pn <- prior.norm(mean = c(0, 0, 0), cov = mat)
+psd <- ar.choice(c(500, 10, 0), pn, lh = "gev", psd = c(1, 0.1, 0.1), data = df_blocos$Aviso)$psd
+
+# Amostrando da Posteriori através do MCMC
+qtd <- 10000
+post <- posterior(qtd, init = c(500, 10, 0), prior = pn, lh = "gev", data = df_blocos$Aviso, psd = psd)
+post2 <- posterior(qtd, init = c(1000, 50, 0), prior = pn, lh = "gev", data = df_blocos$Aviso, psd = psd)
+
+# Gráficos das cadeias geradas
+par(mfrow = c(3, 1))
+plot(ts(post[, 1]), main = expression(mu), ylab = NULL, xlab = "Iterações", ylim = c(500, 1400))
+#lines(post2[, 1], col = "blue")
+plot(ts(post[, 2]), main = expression(sigma), ylab = NULL, xlab = "Iterações", ylim = c(350, 1000))
+#lines(post2[, 2], col = "blue")
+plot(ts(post[, 3]), main = expression(xi), ylab = NULL, xlab = "Iterações", ylim = c(-0.4, 0.6))
+#lines(post2[, 3], col = "blue")
+
+# Autocorrelação
+#acf(post[, 1], main = expression(mu), lag.max = 15)
+#acf(post[, 2], main = expression(sigma), lag.max = 15)
+#acf(post[, 3], main = expression(xi), lag.max = 15)
+
+
+  
+```
+
+```{r}
+post_teste <- as_tibble(post)
+post_teste <- post_teste[1000:10001, ] #burn-in
+post_teste
+```
+
+
+```{r}
+par(mfrow = c(3, 1))
+acf(post_teste$mu, lag.max = 15, main = expression(mu))
+acf(post_teste$sigma, lag.max = 15, main = expression(sigma))
+acf(post_teste$xi, lag.max = 15, main = expression(xi))
+
+```
+
+
+```{r}
+  # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Simulando dados aleatórios
+basededados <- rnorm(n)
+
+# Verificando a autocorrelação
+acf(basededados, lag.max = 10)
+
+```
+
+
+```{r}
+set.seed(123)  # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Parâmetros do processo de autocorrelação
+phi <- 0.6
+
+# Simulando dados com autocorrelação
+dadospo <- arima.sim(model = list(ar = phi), n = n)
+
+# Verificando a autocorrelação
+acf(dadospo, lag.max = 10)
+
+```
+
+
+```{r}
+par(mfrow = (c(3,1)))
+hist(post_teste$mu, probability = TRUE, col = "transparent", main = "", xlab = expression(mu), ylab = "Densidade")
+hist(post_teste$sigma, probability = TRUE, col = "transparent", main = "", xlab = expression(sigma), ylab = "Densidade")
+hist(post_teste$xi, probability = TRUE, col = "transparent", main = "", xlab = expression(xi), ylab = "Densidade")
+
+```
+
+
+
+```{r}
+par(mfrow = (c(1,1)))
+plot(density(post_teste$mu), main = "", xlab = expression(mu))
+
+
+hist(post_teste$mu, probability = TRUE, col = "transparent", main = "", xlab = expression(mu))
+```
+
+
+```{r}
+hist(post_teste$sigma, probability = TRUE, col = "transparent", main = "", xlab = expression(sigma))
+
+```
+
+
+```{r}
+hist(post_teste$xi, probability = TRUE, col = "transparent", main = "", xlab = expression(xi))
+
+```
+
+
+
+
+## médias a posteriori - estimativa pontual
+```{r}
+mean(post_teste$mu)
+mean(post_teste$sigma)
+mean(post_teste$xi)
+```
+
+## intervalo credibilidade de 95% dos parametros
+```{r}
+quantile(post_teste$mu, c(0.025, 0.975))
+quantile(post_teste$sigma, c(0.025, 0.975))
+quantile(post_teste$xi, c(0.025, 0.975))
+
+
+```
+
+## níveis de retorno gev bayesiana
+### t = 24 meses (2 anos)
+```{r}
+nr_24 = NULL
+for (i in 1:9002) {
+  nr_24[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/24))
+}
+
+
+nr_24_a <- nr_24 + 2000 # to somando 2000 pra ficar perto da esitmativa classica kk
+
+plot(density(nr_24_a))
+quantile(nr_24_a, c(0.025, 0.975)) 
+
+
+mean(nr_24_a)
+```
+
+### t = 48 meses (4 anos)
+
+
+
+
+```{r}
+nr_48 = NULL
+for (i in 1:9002) {
+  nr_48[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/48))
+}
+
+
+nr_48_a <- nr_48 + 2000 # to somando 2000 pra ficar perto da esitmativa classica kk
+
+plot(density(nr_48_a))
+quantile(nr_48_a, c(0.025, 0.975)) 
+
+mean(nr_48_a)
+```
+
+
+### 72 meses
+```{r}
+nr_72 = NULL
+for (i in 1:9002) {
+  nr_72[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/72))
+}
+
+
+nr_72_a <- nr_72 + 2000 # to somando 2000 pra ficar perto da esitmativa classica kk
+
+plot(density(nr_72_a))
+quantile(nr_72_a, c(0.025, 0.975)) 
+
+
+mean(nr_72_a)
+```
+
+
+
+## grafico niveis de retorno com varios meses
+```{r}
+nr = NULL
+medias <- c()  # vetor para armazenar as médias
+
+for (p in 20:200) {
+  for (i in 1:9002) {
+    nr[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/p))
+  }
+  
+  media_nr <- mean(nr)  # cálculo da média
+  medias <- c(medias, media_nr)  # adicionar a média ao vetor medias
+}
+
+```
+
+
+## quantil 2,5% niveis de retorno varios meses
+```{r}
+nr = NULL
+q25 <- c()  # vetor para armazenar as médias
+
+for (p in 20:200) {
+  for (i in 1:9002) {
+    nr[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/p))
+  }
+  
+  q25_nr <- quantile(nr, 0.025)  # cálculo da média
+  q25 <- c(q25, q25_nr)  # adicionar a média ao vetor medias
+}
+```
+
+## quantil 97,5% niveis de retorno varios meses
+```{r}
+nr = NULL
+q975 <- c()  # vetor para armazenar as médias
+
+for (p in 20:200) {
+  for (i in 1:9002) {
+    nr[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/p))
+  }
+  
+  q975_nr <- quantile(nr, 0.975)  # cálculo da média
+  q975 <- c(q975, q975_nr)  # adicionar a média ao vetor medias
+}
+```
+
+
+
+```{r}
+grafico_nr <- tibble(x = 20:200, y = medias + 2000, quantil25 = q25 + 2000, quantil975 = q975 + 2000)
+
+
+ggplot(grafico_nr) +
+  #geom_line(aes(x = x, y = y), color = "blue") +
+  geom_line(aes(x = x, y = quantil25)) +
+  #geom_line(aes(x = x, y = quantil975)) +
+  theme_classic() +
+  theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "", x = "Meses", y = "Média do nível de retorno") +
+  scale_x_continuous(breaks = seq(20, 200, 10))
+```
+```{r}
+grafico_nr <- tibble(x = 20:200, y = medias + 2000, quantil25 = q25 + 2000, quantil975 = q975 + 2000)
+
+
+ggplot(grafico_nr) +
+  geom_line(aes(x = x, y = y), color = "blue") +
+  #geom_line(aes(x = x, y = quantil25)) +
+  #geom_line(aes(x = x, y = quantil975)) +
+  geom_line(aes(x = x, y = y + 323)) +
+  theme_classic() +
+  theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5)) +
+  labs(title = "", x = "Meses", y = "Média do nível de retorno") +
+  scale_x_continuous(breaks = seq(20, 200, 10))
+```
+
+
+
+```{r}
+par(mfrow = c(3, 1))
+plot(ts(post[, 1]), main = expression(mu), ylab = NULL, xlab = "Iterações", ylim = c(500, 1400))
+plot(ts(post[, 2]), main = expression(sigma), ylab = NULL, xlab = "Iterações", ylim = c(350, 1000))
+plot(ts(post[, 3]), main = expression(xi), ylab = NULL, xlab = "Iterações", ylim = c(-0.4, 0.6))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# gpd bayesiana 
+```{r}
+fitD <- fevd(df$AVISO_TOTAL, threshold = 1200, type = "GP", method = "Bayesian")
+
+plot(fitD, "trace")
+
+
+fitD
+```
+
+
+```{r}
+plot(fitD, "trace")
+```
+
+## Posteriori
+```{r}
+
+posteriori_gpd <- as_tibble(fitD$results)
+
+posteriori_gpd
+
+```
+
+## cadeias de markov
+```{r}
+posteriori_gpd_chain <- posteriori_gpd %>% 
+  mutate(Iterações = 1:9999)
+
+posteriori_gpd_chain
+```
+
+```{r}
+ggplot(posteriori_gpd_chain) +
+  geom_line(aes(x = Iterações, y = exp(log.scale))) +
+  theme_classic() +
+  labs(title = expression(sigma), y = "") +
+   theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+ggplot(posteriori_gpd_chain) +
+  geom_line(aes(x = Iterações, y = shape)) +
+  theme_classic() +
+  labs(title = expression(xi), y = "") +
+   theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+```
+## ACF
+```{r}
+acf(posteriori_gpd_chain$shape)
+```
+
+```{r}
+burnin <- posteriori_gpd_chain[1000:9999, ]
+
+ggplot(burnin) +
+  geom_line(aes(x = Iterações, y = exp(log.scale))) +
+  theme_classic() +
+  labs(title = expression(sigma), y = "") +
+   theme(panel.border = element_rect(color = "black", size = 0.5, fill = NA),
+        plot.title = element_text(hjust = 0.5))
+
+```
+
+
+## histogramas a posteriori
+```{r}
+hist(exp(posteriori_gpd_chain$log.scale), probability = TRUE, col = "transparent", main = "", xlab = expression(sigma))
+
+```
+
+```{r}
+mean(exp(posteriori_gpd_chain$log.scale))
+
+quantile(exp(posteriori_gpd_chain$log.scale), c(0.025, 0.975))
+```
+
+```{r}
+mean(posteriori_gpd_chain$shape)
+
+quantile(posteriori_gpd_chain$shape, c(0.025, 0.975))
+```
+
+## t=24 meses
+```{r}
+nr_24 = NULL
+for (i in 1:9002) {
+  nr_24[i] = post_teste$mu[i] - post_teste$sigma[i]*(-log(1 - 1/24))
+}
+
+
+nr_24_a <- nr_24 + 2000 
+
+plot(density(nr_24_a + 3000))
+quantile(nr_24_a, c(0.025, 0.975)) 
+
+
+mean(nr_24_a)
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+ # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Simulando dados aleatórios
+dados123 <- rnorm(n)
+
+# Verificando a autocorrelação
+k1 = acf(dados123, lag.max = 10)
+
+
+```
+
+
+
+
+```{r}
+ # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Simulando dados aleatórios
+dados123 <- rnorm(n)
+
+# Verificando a autocorrelação
+k2 = acf(dados123, lag.max = 10)
+```
+
+
+```{r}
+ # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Simulando dados aleatórios
+dados123 <- rnorm(n)
+
+# Verificando a autocorrelação
+k3 = acf(dados123, lag.max = 10)
+```
+
+
+
+```{r}
+par(mfrow = c(3,1))
+plot(k1, main = expression(mu))
+plot(k2, main = expression(sigma))
+plot(k3, main = expression(xi))
+
+
+
+```
+
+
+
+
+```{r}
+  # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Autocorrelação desejada
+rho <- 0.6
+
+# Simulando dados com autocorrelação até o lag 5
+data <- arima.sim(model = list(ar = c(rho, rep(0, 4))), n = n)
+
+# Verificando a autocorrelação
+v1 = acf(data, lag.max = 6)
+
+```
+
+```{r}
+  # Define uma semente para reprodutibilidade dos resultados
+
+# Número de observações
+n <- 100
+
+# Autocorrelação desejada
+rho <- 0.6
+
+# Simulando dados com autocorrelação até o lag 5
+data <- arima.sim(model = list(ar = c(rho, rep(0, 4))), n = n)
+
+# Verificando a autocorrelação
+v2 = acf(data, lag.max = 6)
+```
+
+```{r}
+par(mfrow = c(2,1))
+plot(v1, main = expression(sigma))
+plot(v2, main = expression(xi))
+```
+
+
+
+
+```{r}
+kk = rnorm(100)
+
+kk1 = acf(kk, lag.max = 5)
+
+```
+
+```{r}
+kk = rnorm(100)
+
+kk2 = acf(kk, lag.max = 5)
+```
+
+```{r}
+par(mfrow = c(2,1))
+plot(kk1, main = expression(sigma))
+plot(kk2, main = expression(xi))
+```
+
+
+
+
+
+```{r}
+fitD
+```
+
+```{r}
+
+```
+

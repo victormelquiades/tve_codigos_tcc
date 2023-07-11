@@ -419,9 +419,24 @@ plot(fitD, type = "rl", main = "Nível de retorno")
 ```
 
 ```{r}
-plot(fitD, type = "density", main = "", xlab = "Valor de Aviso")
+plot(fitD, type = "density", main = "", xlab = "Valor de Aviso", ylab = "Densidade")
 
 ```
+
+
+```{r}
+shape <- 1.226535e-02
+scale <- 5.819792e+02
+
+x <- seq(0, max(fitD$x), length.out = 1000)
+densidade_gpd <- dgpd(x, xi = shape, beta = scale)
+
+plot(density(fitD$x, kernel = "gaussian", from = 0), main = "", xlab = "Valor de Aviso", ylab = "Densidade")
+lines(x, densidade_gpd, col = "blue", lty = 2)
+legend("topright", legend = c("Empírico", "Ajustado"), col = c("black", "blue"), lty = c(1, 2))
+```
+
+
 
 
 ```{r}

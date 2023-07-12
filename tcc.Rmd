@@ -698,7 +698,7 @@ for (i in 1:9002) {
 }
 
 
-nr_24_a <- nr_24 + 2000 # to somando 2000 pra ficar perto da esitmativa classica kk
+nr_24_a <- nr_24 + 2000 
 
 plot(density(nr_24_a))
 quantile(nr_24_a, c(0.025, 0.975)) 
@@ -719,7 +719,7 @@ for (i in 1:9002) {
 }
 
 
-nr_48_a <- nr_48 + 2000 # to somando 2000 pra ficar perto da esitmativa classica kk
+nr_48_a <- nr_48 + 2000
 
 plot(density(nr_48_a))
 quantile(nr_48_a, c(0.025, 0.975)) 
@@ -736,7 +736,7 @@ for (i in 1:9002) {
 }
 
 
-nr_72_a <- nr_72 + 2000 # to somando 2000 pra ficar perto da esitmativa classica kk
+nr_72_a <- nr_72 + 2000 
 
 plot(density(nr_72_a))
 quantile(nr_72_a, c(0.025, 0.975)) 
